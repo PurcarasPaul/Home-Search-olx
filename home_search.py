@@ -3,7 +3,11 @@ import xlsxwriter
 import time
 import openpyxl
 import re
+import ctypes
 from selenium.common.exceptions import NoSuchElementException
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
 
 #function that gets older results if there are any
 def get_old_results():
@@ -142,6 +146,8 @@ def check_title_and_description(temp_browser,result_link,forbidden_words):
     text=get_data_xpath(temp_browser,"//div[1]/h1")
     if not text:
         text=get_data_xpath(temp_browser,"//*[@id='root']/div[1]/div[3]/div[2]/div[1]/div[2]/div[2]/h1")
+    if not text:
+        text = get_data_xpath(temp_browser,"//*[@id='root']/div[1]/div[3]/div[2]/div[1]/div[1]/div[2]/h1")
     if isTextOk(text,forbidden_words)==False:
         return False
 
@@ -149,6 +155,8 @@ def check_title_and_description(temp_browser,result_link,forbidden_words):
     text=get_data_xpath(temp_browser,"//*[@id='textContent']")
     if not text:
         text=get_data_xpath(temp_browser,"//*[@id='root']/div[1]/div[3]/div[2]/div[1]/div[2]/div[8]/div")
+    if not text:
+        text = get_data_xpath(temp_browser,"//*[@id='root']/div[1]/div[3]/div[2]/div[1]/div[1]/div[8]/div")
     if isTextOk(text,forbidden_words)==False:
         return False
 
@@ -156,24 +164,40 @@ def check_title_and_description(temp_browser,result_link,forbidden_words):
 
 #checks 2 different xpaths to find the floor area and then returns it
 def get_floor_area(temp_browser):
+    floor_area_xpaths = ["//div[2]//ul//li[2]//span//strong","//*[@id='root']/div[1]/div[3]/div[2]/div[1]/div[2]/ul/li[3]/p","//*[@id='root']/div[1]/div[3]/div[2]/div[1]/div[2]/ul/li[2]/p"]
+
     floor_area=get_data_xpath(temp_browser,"//div[2]//ul//li[3]//span//strong")
+    for xpath in floor_area_xpaths:
+        if not floor_area:
+            floor_area=get_data_xpath(temp_browser,xpath)
+
     if not floor_area:
-        floor_area=get_data_xpath(temp_browser,"//div[2]//ul//li[2]//span//strong")
+        return None
     if "m²" in floor_area:
         return floor_area
-    else:
-        return None
     
 #checks 2 different xpaths to find the floor and then returns it
 def get_floor(temp_browser):
+    floor_xpaths = ["//div[2]//ul//li[5]//a//strong","//*[@id='root']/div[1]/div[3]/div[2]/div[1]/div[2]/ul/li[4]/p","//*[@id='root']/div[1]/div[3]/div[2]/div[1]/div[2]/ul/li[5]/p"]
+
     floor = get_data_xpath(temp_browser,"//div[2]//ul//li[4]//a//strong")
-    if not floor or len(floor) > 6:
-        floor = get_data_xpath(temp_browser,"//div[2]//ul//li[5]//a//strong")
+    for xpath in floor_xpaths:
+        if not floor or len(floor) > 6:
+            floor = get_data_xpath(temp_browser,xpath)
+    
+    if not floor:
+        return None
     return floor
 
 #returns the date of when the offer was posted
 def get_posted_date(temp_browser):
     posted_date = get_data_xpath(temp_browser,"//ul//li[1]//em//strong")
+    
+    if not posted_date:
+        posted_date = get_data_xpath(temp_browser,"//*[@id='root']/div[1]/div[3]/div[2]/div[1]/div[2]/div[1]/span/span")
+        return posted_date
+    elif not posted_date:
+        return None
     return posted_date[10:]
 
 #clicks on a button to make the phone number visible then returns the phone number of the user that posted the offer,if there is any,otherwise it will return none
@@ -188,16 +212,29 @@ def get_phone_number(temp_browser):
     try:
         elem = temp_browser.find_element_by_xpath("//*[@id='contact_methods']/li[2]/div")
     except NoSuchElementException:
-        return None
+        try:
+            elem = temp_browser.find_element_by_xpath("//*[@id='root']/div[1]/div[3]/div[2]/div[1]/div[4]/div/div/button")
+        except NoSuchElementException:
+            return None
+        else:
+            waitElement = WebDriverWait(temp_browser,10).until(EC.element_to_be_clickable((By.XPATH,("//*[@id='root']/div[1]/div[3]/div[2]/div[1]/div[4]/div/div/button"))))
+            elem.click()
+            waitPhone = WebDriverWait(temp_browser,10).until(EC.presence_of_element_located((By.XPATH,"//*[@id='root']/div[1]/div[3]/div[2]/div[1]/div[4]/div/div/ul/li")))
+            phone_number = get_data_xpath(temp_browser,"//*[@id='root']/div[1]/div[3]/div[2]/div[1]/div[4]/div/div/ul/li")
+            return phone_number
     else:
+        waitElement = WebDriverWait(temp_browser,10).until(EC.element_to_be_clickable((By.XPATH,("//*[@id='contact_methods']/li[2]/div"))))
         elem.click()
-        time.sleep(2)
+        waitPhone = WebDriverWait(temp_browser,10).until(EC.presence_of_element_located((By.XPATH,"//*[@id='root']/div[1]/div[3]/div[2]/div[1]/div[4]/div/div/ul/li")))
         phone_number = get_data_xpath(temp_browser,"//*[@id='contact_methods_below']/li/div/strong")
         return phone_number
 
 #returns the price of the offer
 def get_price(temp_browser):
     price = get_data_xpath(temp_browser,"//*[@id='offerdescription']/div[1]/div[2]/div/strong")
+
+    if not price:
+        price = get_data_xpath(temp_browser,"//*[@id='root']/div[1]/div[3]/div[2]/div[1]/div[2]/div[3]/h3")
     return price
 
 #checks if the link is new comparing it to the older results of the same program
@@ -210,7 +247,6 @@ def new_link(result_link,old_results):
 #checks if the link is fine then gets multiple data from an offer,like price,phone number,etc.
 def get_data(temp_browser,result_link,old_results,forbidden_words):
     temp_data = []
-
     temp_browser.get(result_link)
 
     if check_title_and_description(temp_browser,result_link,forbidden_words) != False:
@@ -227,49 +263,41 @@ def get_data(temp_browser,result_link,old_results,forbidden_words):
 #clicks a pop-up so that the other links won't have an issue while trying to click elements in them that would be covered by this pop-up
 def accept_terms(temp_browser):
     temp_browser.get('https://www.olx.ro')
-    time.sleep(2)
+    waitCookies = WebDriverWait(temp_browser,10).until(EC.presence_of_element_located((By.ID,"onetrust-accept-btn-handler")))
     cookies = temp_browser.find_element_by_id("onetrust-accept-btn-handler").click()
 
 #creates an excel file and fills it up with the data stored from each link
 def results_to_excel(results,old_results,forbidden_words):
-    #had to use try except because sometimes the browser would open in a different format that wouldn't work with my curent code
-    #one option was to add 200 more lines of code for the different format
-    #the other option was to close the browser and open it again until i would get the format i wrote the code for (used this one since it opens it right the second time)
-    try:
-        temp_browser = webdriver.Chrome('chromedriver',options=browser_options())
-        accept_terms(temp_browser)
+    temp_browser = webdriver.Chrome('chromedriver',options=browser_options())
+    accept_terms(temp_browser)
 
-        excel_file = xlsxwriter.Workbook("home_list.xlsx")
-        sheet = excel_file.add_worksheet()
+    excel_file = xlsxwriter.Workbook("home_list.xlsx")
+    sheet = excel_file.add_worksheet()
         
-        sheet.write("A1","Link")
-        sheet.write("B1","Floor Area")
-        sheet.write("C1","Floor")
-        sheet.write("D1","Posted")
-        sheet.write("E1","Phone number")
-        sheet.write("F1","Price")
+    sheet.write("A1","Link")
+    sheet.write("B1","Floor Area")
+    sheet.write("C1","Floor")
+    sheet.write("D1","Posted")
+    sheet.write("E1","Phone number")
+    sheet.write("F1","Price")
 
-        curent_link = 0
-        for link in results:
-            data=[]
-            data.extend(get_data(temp_browser,link,old_results,forbidden_words))
+    curent_link = 0
+    for link in results:
+        data=[]
+        data.extend(get_data(temp_browser,link,old_results,forbidden_words))
             
-            if data:
-                curent_tab=0
-                for single_data in data:
-                    sheet.write(curent_link+1,curent_tab,data[curent_tab])
-                    curent_tab+=1
-                curent_link+=1
+        if data:
+            curent_tab=0
+            for single_data in data:
+                sheet.write(curent_link+1,curent_tab,data[curent_tab])
+                curent_tab+=1
+            curent_link+=1
 
-        temp_browser.close()
-        excel_file.close()
-    except TypeError:
-        temp_browser.close()
-        results_to_excel(results,old_results,forbidden_words)
-    else:
-        exit()
+    temp_browser.close()
+    excel_file.close()
 
 old_results = get_old_results()
 forbidden_words = input("Enter words with space between them that you don't want to be in the title or the description of the home:").split()
 results = get_results()
 results_to_excel(results,old_results,forbidden_words)
+ctypes.windll.user32.MessageBoxW(0, "The program finished the task corectly!", "Success!")
